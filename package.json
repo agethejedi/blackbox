@@ -1,1 +1,24 @@
-{"scripts":{"dev":"vite","build":"tsc && vite build","preview":"vite preview","deploy:pages":"npm run build && wrangler pages deploy dist --project-name project-black-box","worker:dev":"wrangler dev worker/index.ts","worker:deploy":"wrangler deploy"},"dependencies":{"@vitejs/plugin-react":"latest","vite":"latest","typescript":"latest","react":"latest","react-dom":"latest","lucide-react":"latest","recharts":"latest","framer-motion":"latest"},"devDependencies":{}}
+{
+  "name": "project-black-box",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "latest",
+    "recharts": "latest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest"
+  }
+}

@@ -1,16 +1,11 @@
-name = "project-black-box-api"
-main = "worker/index.ts"
+name = "project-black-box"
 compatibility_date = "2026-06-25"
+pages_build_output_dir = "dist"
 
-[[d1_databases]]
-binding = "DB"
-database_name = "blackbox-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-
-[[r2_buckets]]
-binding = "UPLOADS"
-bucket_name = "blackbox-uploads"
-
-[[kv_namespaces]]
-binding = "CONFIG"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# Dashboard deployment path:
+# Create a Cloudflare Pages project from this GitHub repo.
+# In Pages > Settings > Bindings, create production bindings:
+# D1: DB
+# KV: BLACKBOX_KV
+# R2: UPLOADS
+# Environment variables/secrets: OPENAI_API_KEY, ADMIN_INIT_TOKEN
