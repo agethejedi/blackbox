@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS participants (id TEXT PRIMARY KEY, user_id TEXT, display_name TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, user_id TEXT, title TEXT, source_type TEXT, raw_text TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, outcome TEXT, quality_score INTEGER, escalation_score INTEGER, validation_score INTEGER, collaboration_score INTEGER, topic_drift_score INTEGER, resolution_probability INTEGER);
+CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, conversation_id TEXT, speaker TEXT, body TEXT, ts TEXT, idx INTEGER);
+CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, conversation_id TEXT, topic TEXT, confidence REAL);
+CREATE TABLE IF NOT EXISTS themes (id TEXT PRIMARY KEY, conversation_id TEXT, theme TEXT, confidence REAL);
+CREATE TABLE IF NOT EXISTS analysis_runs (id TEXT PRIMARY KEY, conversation_id TEXT, model TEXT, json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS horsemen_scores (id TEXT PRIMARY KEY, conversation_id TEXT, speaker TEXT, criticism INTEGER, defensiveness INTEGER, contempt INTEGER, stonewalling INTEGER, evidence_json TEXT);
+CREATE TABLE IF NOT EXISTS repair_scores (id TEXT PRIMARY KEY, conversation_id TEXT, speaker TEXT, validation INTEGER, accountability INTEGER, appreciation INTEGER, compromise INTEGER, reconnection INTEGER, successful_repairs INTEGER, failed_repairs INTEGER, evidence_json TEXT);
+CREATE TABLE IF NOT EXISTS conflict_outcomes (id TEXT PRIMARY KEY, conversation_id TEXT, outcome TEXT, rationale TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS coaching_reports (id TEXT PRIMARY KEY, user_id TEXT, draft TEXT, json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, user_id TEXT, conversation_id TEXT, filename TEXT, content_type TEXT, r2_key TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
