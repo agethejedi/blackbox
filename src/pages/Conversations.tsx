@@ -247,7 +247,7 @@ export default function Conversations() {
     // Apply name mapping to transcript
     let namedTranscript = pendingTranscript
     Object.entries(nameMapping).forEach(([original, name]) => {
-      namedTranscript = namedTranscript.replaceAll(original + ':', name + ':')
+      namedTranscript = namedTranscript.split(original + ':').join(name + ':')
     })
 
     const participants = Object.values(nameMapping).filter(Boolean)
