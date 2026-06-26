@@ -63,15 +63,29 @@ export async function onRequestPost(context) {
                 type: "message",
                 role: "user",
                 content: [
-                  { type: "input_image", image_url: { url: `data:${file.type};base64,${base64}` } },
+                  // Normalize HEIC/HEIF to jpeg for OpenAI — it only accepts png, jpeg, gif, webp
+                  { type: "input_image", image_url: { url: `data:${
+                    (file.type === "image/heic" || file.type === "image/heif") ? "image/jpeg" : (file.type || "image/jpeg")
+                  };base64,${base64}` } },
                   { type: "input_text", text: "Extract the conversation text from this screenshot. Format each message as 'Speaker: message text'. If you cannot identify speakers, use 'Person A' and 'Person B'. Return only the conversation text, no other commentary." },
                 ],
               },
             ],
           }),
         })
-        const data = await res.json()
+
+        // Safe parse — OpenAI occasionally returns non-JSON error pages
+        let data = {}
+        const contentType = res.headers.get("content-type") || ""
+        if (contentType.includes("application/json")) {
+          data = await res.json()
+        } else {
+          const text = await res.text()
+          console.error("OpenAI vision non-JSON response:", text.slice(0, 200))
+          throw new Error(`OpenAI returned unexpected response (status ${res.status})`)
+        }
         rawText = data.output?.[0]?.content?.[0]?.text || ""
+        if (!rawText && data.error) throw new Error(data.error.message || "Vision API error")
 
       } else if (type === "audio") {
         // Transcribe with Whisper
