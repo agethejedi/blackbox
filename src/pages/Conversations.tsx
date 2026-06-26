@@ -300,7 +300,55 @@ export default function Conversations() {
     }
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'screenshot' | 'pdf' | 'audio') => {
+  // ── Image file handler — normalizes HEIC to JPEG, then uploads ──────────
+  const handleImageFile = async (file: File) => {
+    setLoading(true); setError(''); setAnalysisStatus('Preparing image…')
+    try {
+      let imageFile = file
+
+      // HEIC/HEIF from iPhone isn't supported by OpenAI vision API —
+      // convert to JPEG via canvas before uploading
+      const isHeic = file.type === 'image/heic' || file.type === 'image/heif'
+        || file.name.toLowerCase().endsWith('.heic')
+        || file.name.toLowerCase().endsWith('.heif')
+
+      if (isHeic) {
+        setAnalysisStatus('Converting iPhone photo format…')
+        try {
+          const bitmap = await createImageBitmap(file)
+          const canvas = document.createElement('canvas')
+          canvas.width  = bitmap.width
+          canvas.height = bitmap.height
+          const ctx = canvas.getContext('2d')!
+          ctx.drawImage(bitmap, 0, 0)
+          const blob = await new Promise<Blob>((res, rej) =>
+            canvas.toBlob(b => b ? res(b) : rej(new Error('Canvas conversion failed')), 'image/jpeg', 0.92)
+          )
+          imageFile = new File([blob], file.name.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'), { type: 'image/jpeg' })
+        } catch {
+          // If canvas conversion fails, try sending as-is and let the server handle it
+          console.warn('HEIC canvas conversion failed — sending original')
+        }
+      }
+
+      setAnalysisStatus('Uploading…')
+      const upload = await api.uploadFile(imageFile, 'screenshot')
+      setAnalysisStatus('Analyzing screenshot…')
+      await pollAnalysis(upload.upload_id, setAnalysisStatus)
+      const data = await api.listConversations()
+      setConversations(data.conversations)
+      setIngestMode(null)
+      setAnalysisStatus('')
+    } catch (err: any) {
+      setError(err.message || 'Image upload failed')
+      setAnalysisStatus('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ── File upload (PDF / pre-recorded audio) ────────────────────────────────
+
     const file = e.target.files?.[0]
     if (!file) return
     setLoading(true); setError(''); setAnalysisStatus('Uploading…')
@@ -463,18 +511,56 @@ export default function Conversations() {
         <div className="mb-6 rounded-xl p-5"
           style={{ background: '#0e0c1a', border: '1px solid rgba(45,212,191,0.25)' }}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-white">Upload Screenshot</h3>
+            <div>
+              <h3 className="text-sm font-medium text-white">Upload Screenshot</h3>
+              <p className="text-xs mt-0.5" style={{ color: '#6b7280' }}>
+                Paste from clipboard (Cmd+V / Ctrl+V), drag and drop, or tap to choose a file.
+              </p>
+            </div>
             <button onClick={() => setIngestMode(null)} className="text-xs" style={{ color: '#6b7280' }}>✕ Close</button>
           </div>
-          <label className="flex flex-col items-center justify-center rounded-lg cursor-pointer py-10"
-            style={{ border: '2px dashed #1e1a2e', background: '#070510' }}>
-            <span className="text-3xl mb-2">🖼</span>
-            <span className="text-sm" style={{ color: '#6b7280' }}>Click to upload screenshot</span>
-            <span className="text-xs mt-1" style={{ color: '#374151' }}>PNG, JPG, WEBP supported</span>
-            <input type="file" accept="image/*" className="hidden"
-              onChange={e => handleFileUpload(e, 'screenshot')} disabled={loading} />
+
+          {/* Paste zone — listens for clipboard paste events */}
+          <div
+            tabIndex={0}
+            onPaste={async (e) => {
+              const items = Array.from(e.clipboardData?.items || [])
+              const imageItem = items.find(item => item.type.startsWith('image/'))
+              if (!imageItem) { setError('No image found in clipboard. Copy a screenshot first.'); return }
+              const file = imageItem.getAsFile()
+              if (!file) return
+              setError('')
+              await handleImageFile(file)
+            }}
+            className="flex flex-col items-center justify-center rounded-lg py-10 outline-none transition-all cursor-text"
+            style={{ border: '2px dashed rgba(45,212,191,0.3)', background: '#070510' }}
+          >
+            <span className="text-3xl mb-2">📋</span>
+            <span className="text-sm font-medium" style={{ color: '#5eead4' }}>Paste screenshot here</span>
+            <span className="text-xs mt-1" style={{ color: '#374151' }}>Cmd+V / Ctrl+V after copying a screenshot</span>
+            <span className="text-xs mt-3 opacity-40" style={{ color: '#6b7280' }}>— or —</span>
+          </div>
+
+          {/* File input fallback — accepts images including HEIC from iPhone */}
+          <label className="mt-3 flex flex-col items-center justify-center rounded-lg cursor-pointer py-4 transition-all"
+            style={{ border: '1px dashed #1e1a2e', background: 'transparent' }}>
+            <span className="text-xs" style={{ color: '#6b7280' }}>
+              📁 Choose file (PNG, JPG, WEBP, HEIC)
+            </span>
+            <input type="file" accept="image/*,.heic,.heif" className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                await handleImageFile(file)
+              }} disabled={loading} />
           </label>
-          {loading && <p className="text-xs mt-2 text-center" style={{ color: '#8b5cf6' }}>{analysisStatus}</p>}
+
+          {loading && (
+            <div className="flex items-center gap-2 justify-center mt-3">
+              <div className="w-4 h-4 rounded-full border-2 border-teal-400 border-t-transparent animate-spin" />
+              <p className="text-xs" style={{ color: '#2dd4bf' }}>{analysisStatus}</p>
+            </div>
+          )}
           {error && <p className="text-xs mt-2 text-center" style={{ color: '#f87171' }}>{error}</p>}
         </div>
       )}
