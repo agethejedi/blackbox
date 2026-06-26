@@ -348,7 +348,7 @@ export default function Conversations() {
   }
 
   // ── File upload (PDF / pre-recorded audio) ────────────────────────────────
-
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'screenshot' | 'pdf' | 'audio') => {
     const file = e.target.files?.[0]
     if (!file) return
     setLoading(true); setError(''); setAnalysisStatus('Uploading…')
