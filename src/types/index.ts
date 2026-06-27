@@ -44,4 +44,4 @@ export interface SearchResult {
   conversation_id: string; title: string; excerpt: string;
   relevance: number; date: string; outcome: ConflictOutcome; topics: string[];
 }
-export type NavItem = 'dashboard' | 'conversations' | 'quality' | 'horsemen' | 'repair' | 'drift' | 'loops' | 'history' | 'coach' | 'reports' | 'settings'
+export type NavItem = 'dashboard' | 'conversations' | 'collections' | 'quality' | 'horsemen' | 'repair' | 'drift' | 'loops' | 'history' | 'coach' | 'reports' | 'settings'
