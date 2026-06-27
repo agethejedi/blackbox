@@ -106,6 +106,9 @@ export const api = {
 
   deleteCollection: (id: string) =>
     request<{ ok: boolean }>(`/collections?id=${id}`, { method: 'DELETE' }),
+
+  // Reports
+  generateReport: (conversationIds: string[]) =>
     request<{ report_url: string }>('/report', {
       method: 'POST',
       body: JSON.stringify({ conversation_ids: conversationIds }),
