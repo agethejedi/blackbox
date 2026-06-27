@@ -72,8 +72,40 @@ export const api = {
       body: JSON.stringify({ draft, context }),
     }),
 
-  // Reports
-  generateReport: (conversationIds: string[]) =>
+  // Re-analyze existing conversation (versioned)
+  reanalyze: (conversationId: string) =>
+    request<{ ok: boolean; analysis_id: string; version: number; analysis: any }>('/reanalyze', {
+      method: 'POST',
+      body: JSON.stringify({ conversation_id: conversationId }),
+    }),
+
+  // Collections
+  listCollections: () =>
+    request<{ collections: any[] }>('/collections'),
+
+  getCollection: (id: string) =>
+    request<{ collection: any }>(`/collections?id=${id}`),
+
+  createCollection: (name: string, description?: string) =>
+    request<{ ok: boolean; id: string }>('/collections', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    }),
+
+  addToCollection: (collectionId: string, conversationId: string) =>
+    request<{ ok: boolean }>('/collections?action=add', {
+      method: 'POST',
+      body: JSON.stringify({ collection_id: collectionId, conversation_id: conversationId }),
+    }),
+
+  removeFromCollection: (collectionId: string, conversationId: string) =>
+    request<{ ok: boolean }>('/collections?action=remove', {
+      method: 'POST',
+      body: JSON.stringify({ collection_id: collectionId, conversation_id: conversationId }),
+    }),
+
+  deleteCollection: (id: string) =>
+    request<{ ok: boolean }>(`/collections?id=${id}`, { method: 'DELETE' }),
     request<{ report_url: string }>('/report', {
       method: 'POST',
       body: JSON.stringify({ conversation_ids: conversationIds }),
