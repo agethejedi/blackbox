@@ -3,7 +3,6 @@ import SectionHeader from '../components/SectionHeader'
 import OutcomeBadge from '../components/OutcomeBadge'
 import ScoreCard from '../components/ScoreCard'
 import { api, pollAnalysis } from '../lib/api'
-import { Conversation } from '../types'
 
 type IngestMode = 'text' | 'screenshot' | 'file' | 'record' | null
 
@@ -180,28 +179,37 @@ export default function Conversations() {
 
   const stopRecording = useCallback(() => {
     if (!mediaRecorderRef.current) return
+    // Capture mimeType before stopping — ref gets cleared after stop
+    const mimeType = mediaRecorderRef.current.mimeType || 'audio/webm'
+
+    // Assign onstop BEFORE calling .stop() — otherwise it can fire before handler is set
+    mediaRecorderRef.current.onstop = async () => {
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
+      console.log('[BlackBox] Recording stopped — blob size:', audioBlob.size, 'type:', audioBlob.type)
+      await processRecording(audioBlob)
+    }
+
     mediaRecorderRef.current.stop()
     mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop())
     if (timerRef.current) clearInterval(timerRef.current)
     setIsRecording(false)
-
-    // Wait for final chunk then process
-    mediaRecorderRef.current.onstop = async () => {
-      const audioBlob = new Blob(audioChunksRef.current, {
-        type: mediaRecorderRef.current?.mimeType || 'audio/webm'
-      })
-      await processRecording(audioBlob)
-    }
   }, [recordingTitle, recordingSeconds])
 
   const processRecording = async (audioBlob: Blob) => {
     setLoading(true)
     setTranscribeStatus('Uploading audio…')
     try {
+      if (!audioBlob || audioBlob.size === 0) {
+        throw new Error('Recording is empty — no audio was captured. Check microphone permissions.')
+      }
+
+      const ext = audioBlob.type.includes('ogg') ? 'ogg' : audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
       const form = new FormData()
-      form.append('audio', audioBlob, `recording.${audioBlob.type.includes('ogg') ? 'ogg' : 'webm'}`)
+      form.append('audio', audioBlob, `recording.${ext}`)
       form.append('title', recordingTitle || 'Recorded Conversation')
       form.append('duration_sec', String(recordingSeconds))
+
+      console.log('[BlackBox] Sending to /api/transcribe — blob:', audioBlob.size, 'bytes,', audioBlob.type)
 
       const res  = await fetch('/api/transcribe', { method: 'POST', body: form })
       const data = await res.json()
@@ -606,19 +614,98 @@ export default function Conversations() {
       ) : (
         <div className="space-y-2">
           {conversations.map(c => (
-            <div key={c.id} onClick={() => setSelected(c)}
-              className="rounded-xl p-4 cursor-pointer transition-all hover:border-purple-500/30"
+            <div key={c.id}
+              className="rounded-xl p-4 transition-all hover:border-purple-500/30"
               style={{ background: '#0e0c1a', border: selected?.id === c.id ? '1px solid #8b5cf6' : '1px solid #1e1a2e' }}>
               <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setSelected(c)}>
                   <span className="text-xs" style={{ color: '#6b7280' }}>
                     {c.source_type === 'audio' ? '🎙' : c.source_type === 'screenshot' ? '🖼' : c.source_type === 'text_paste' ? '📝' : '📄'}
                   </span>
                   <span className="text-sm font-medium text-white">{c.title}</span>
                 </div>
-                {c.analysis && <OutcomeBadge outcome={c.analysis.outcome} />}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {c.analysis && <OutcomeBadge outcome={c.analysis.outcome} />}
+                  {/* Re-analyze button */}
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      setError(''); setAnalysisStatus('Re-analyzing…'); setLoading(true)
+                      try {
+                        const res = await fetch('/api/reanalyze', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ conversation_id: c.id })
+                        })
+                        const data = await res.json()
+                        if (!data.ok) throw new Error(data.error)
+                        const updated = await api.listConversations()
+                        setConversations(updated.conversations)
+                      } catch (err: any) {
+                        setError(err.message)
+                      } finally {
+                        setLoading(false); setAnalysisStatus('')
+                      }
+                    }}
+                    disabled={loading}
+                    className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-40"
+                    style={{ color: '#2dd4bf', border: '1px solid rgba(45,212,191,0.25)', background: 'rgba(45,212,191,0.06)' }}
+                    title="Re-analyze this conversation">
+                    ↻ Analyze
+                  </button>
+                  {/* Add to Collection button */}
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      const collName = prompt('Add to collection (enter collection name or leave blank to create new):')
+                      if (collName === null) return
+                      setLoading(true); setError('')
+                      try {
+                        // List collections and find matching one
+                        const colRes = await fetch('/api/collections')
+                        const colData = await colRes.json()
+                        const collections = colData.collections || []
+                        let targetId: string
+
+                        const match = collections.find((col: any) =>
+                          col.name.toLowerCase() === collName.trim().toLowerCase()
+                        )
+                        if (match) {
+                          targetId = match.id
+                        } else {
+                          // Create new collection
+                          const createRes = await fetch('/api/collections', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: collName.trim() || 'New Collection' })
+                          })
+                          const createData = await createRes.json()
+                          if (!createData.ok) throw new Error(createData.error)
+                          targetId = createData.id
+                        }
+
+                        const addRes = await fetch('/api/collections?action=add', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ collection_id: targetId, conversation_id: c.id })
+                        })
+                        const addData = await addRes.json()
+                        if (!addData.ok) throw new Error(addData.error)
+                      } catch (err: any) {
+                        setError(err.message)
+                      } finally {
+                        setLoading(false)
+                      }
+                    }}
+                    disabled={loading}
+                    className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-40"
+                    style={{ color: '#a78bfa', border: '1px solid rgba(139,92,246,0.25)', background: 'rgba(139,92,246,0.06)' }}
+                    title="Add to collection">
+                    + Collection
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelected(c)}>
                 <span className="text-[10px]" style={{ color: '#6b7280' }}>{c.source_type.replace('_', ' ').toUpperCase()}</span>
                 <span className="text-[10px]" style={{ color: '#374151' }}>{new Date(c.created_at).toLocaleDateString()}</span>
                 {c.analysis && (
