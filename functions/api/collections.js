@@ -152,7 +152,7 @@ export async function onRequestGet(context) {
           SELECT * FROM collection_analysis_runs
           WHERE collection_id = ?
           ORDER BY version DESC LIMIT 1
-        `).bind(id).first()
+        `).bind(id).first().catch(() => null)
       ])
 
       return json({
@@ -172,22 +172,34 @@ export async function onRequestGet(context) {
     }
 
     // List all collections with member counts and latest scores
-    const result = await env.DB.prepare(`
-      SELECT c.*,
-        COUNT(cm.id) as member_count,
-        car.quality_score_avg,
-        car.escalation_trend,
-        car.dominant_outcome,
-        car.version as analysis_version
-      FROM collections c
-      LEFT JOIN collection_members cm ON c.id = cm.collection_id
-      LEFT JOIN collection_analysis_runs car ON c.id = car.collection_id
-        AND car.version = (
-          SELECT MAX(version) FROM collection_analysis_runs WHERE collection_id = c.id
-        )
-      GROUP BY c.id
-      ORDER BY c.updated_at DESC
-    `).all()
+    let result
+    try {
+      result = await env.DB.prepare(`
+        SELECT c.*,
+          COUNT(cm.id) as member_count,
+          car.quality_score_avg,
+          car.escalation_trend,
+          car.dominant_outcome,
+          car.version as analysis_version
+        FROM collections c
+        LEFT JOIN collection_members cm ON c.id = cm.collection_id
+        LEFT JOIN collection_analysis_runs car ON c.id = car.collection_id
+          AND car.version = (
+            SELECT MAX(version) FROM collection_analysis_runs WHERE collection_id = c.id
+          )
+        GROUP BY c.id
+        ORDER BY c.updated_at DESC
+      `).all()
+    } catch (err) {
+      // collection_analysis_runs table may not exist yet — fall back to simpler query
+      result = await env.DB.prepare(`
+        SELECT c.*, COUNT(cm.id) as member_count
+        FROM collections c
+        LEFT JOIN collection_members cm ON c.id = cm.collection_id
+        GROUP BY c.id
+        ORDER BY c.updated_at DESC
+      `).all()
+    }
 
     return json({ collections: result.results || [] })
   } catch (err) {
