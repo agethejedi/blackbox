@@ -9,38 +9,36 @@ const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, header
 
 export async function onRequestPost(context) {
   const { request, env } = context
-  if (!env.DB) return json({ error: "DB not configured" }, 503)
-  if (!env.OPENAI_API_KEY) return json({ error: "OPENAI_API_KEY not configured" }, 503)
+  try {
+    if (!env.DB) return json({ error: "DB not configured" }, 503)
+    if (!env.OPENAI_API_KEY) return json({ error: "OPENAI_API_KEY not configured" }, 503)
 
-  const formData = await request.formData()
-  const file = formData.get("file")
-  const type = formData.get("type") || "screenshot"
+    const formData = await request.formData()
+    const file = formData.get("file")
+    const type = formData.get("type") || "screenshot"
 
-  if (!file) return json({ error: "file required" }, 400)
+    if (!file) return json({ error: "file required" }, 400)
 
-  const uploadId = crypto.randomUUID()
-  const ext = file.name?.split(".").pop() || "bin"
-  const key = `${type}/${uploadId}.${ext}`
+    const uploadId = crypto.randomUUID()
+    const ext = file.name?.split(".").pop() || "bin"
+    const key = `${type}/${uploadId}.${ext}`
 
-  // Determine R2 bucket by type
-  let bucket
-  if (type === "audio") bucket = env.BLACKBOX_AUDIO
-  else bucket = env.BLACKBOX_UPLOADS
+    let bucket
+    if (type === "audio") bucket = env.BLACKBOX_AUDIO
+    else bucket = env.BLACKBOX_UPLOADS
 
-  if (!bucket) return json({ error: `R2 bucket not configured for type: ${type}` }, 503)
+    if (!bucket) return json({ error: `R2 bucket not configured for type: ${type}` }, 503)
 
-  // Upload to R2
-  await bucket.put(key, file.stream(), {
-    httpMetadata: { contentType: file.type },
-  })
+    await bucket.put(key, file.stream(), {
+      httpMetadata: { contentType: file.type },
+    })
 
-  const now = new Date().toISOString()
-  const convId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const convId = crypto.randomUUID()
 
-  // Create conversation record
-  await env.DB.prepare(
-    "INSERT INTO conversations (id, title, source_type, uploaded_by, created_at, attachment_key, status) VALUES (?, ?, ?, ?, ?, ?, 'processing')"
-  ).bind(convId, file.name || "Uploaded File", type, "user", now, key).run()
+    await env.DB.prepare(
+      "INSERT INTO conversations (id, title, source_type, uploaded_by, created_at, attachment_key, status) VALUES (?, ?, ?, ?, ?, ?, 'processing')"
+    ).bind(convId, file.name || "Uploaded File", type, "user", now, key).run()
 
   // Process based on type
   const processFile = async () => {
@@ -133,7 +131,11 @@ export async function onRequestPost(context) {
 
   context.waitUntil(processFile())
 
-  return json({ upload_id: convId, url: key, status: "processing" })
+    return json({ upload_id: convId, url: key, status: "processing" })
+  } catch (err) {
+    console.error("Upload handler error:", String(err))
+    return json({ error: "Upload failed", detail: String(err) }, 500)
+  }
 }
 
 export async function onRequestOptions() {
