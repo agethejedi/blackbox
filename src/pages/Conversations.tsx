@@ -3,8 +3,7 @@ import SectionHeader from '../components/SectionHeader'
 import OutcomeBadge from '../components/OutcomeBadge'
 import ScoreCard from '../components/ScoreCard'
 import { api, pollAnalysis } from '../lib/api'
-
-type IngestMode = 'text' | 'screenshot' | 'file' | 'record' | null
+import { Conversation } from '../types' = 'text' | 'screenshot' | 'file' | 'record' | null
 
 // ── Recording timer display ────────────────────────────────────────────────
 function RecordingTimer({ seconds, limit = 1500 }: { seconds: number; limit?: number }) {
@@ -738,7 +737,7 @@ export default function Conversations() {
             <div className="rounded-lg p-4" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.15)' }}>
               <h4 className="text-[10px] tracking-[0.15em] mb-2" style={{ color: '#8b5cf6' }}>COACHING RECOMMENDATIONS</h4>
               <ul className="space-y-1.5">
-                {selected.analysis.coaching_recommendations.map((r, i) => (
+                {selected.analysis.coaching_recommendations.map((r: string, i: number) => (
                   <li key={i} className="text-xs flex gap-2" style={{ color: '#c4b5fd' }}>
                     <span style={{ color: '#6b7280' }}>·</span>{r}
                   </li>
