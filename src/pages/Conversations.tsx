@@ -3,7 +3,9 @@ import SectionHeader from '../components/SectionHeader'
 import OutcomeBadge from '../components/OutcomeBadge'
 import ScoreCard from '../components/ScoreCard'
 import { api, pollAnalysis } from '../lib/api'
-import { Conversation } from '../types' = 'text' | 'screenshot' | 'file' | 'record' | null
+import { Conversation } from '../types'
+
+type IngestMode = 'text' | 'screenshot' | 'file' | 'record' | null
 
 // ── Recording timer display ────────────────────────────────────────────────
 function RecordingTimer({ seconds, limit = 1500 }: { seconds: number; limit?: number }) {
