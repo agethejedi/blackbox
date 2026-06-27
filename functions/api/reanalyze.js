@@ -1,4 +1,5 @@
 // POST /api/reanalyze — re-run analysis on an existing conversation, versioned
+// Handles conversations with no raw_text by re-extracting from R2
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -37,6 +38,40 @@ Analyze the following conversation and return ONLY a valid JSON object:
 }
 Do NOT determine who is right. Identify patterns only.`
 
+async function extractTextFromScreenshot(env, attachmentKey, openaiKey) {
+  const bucket = env.BLACKBOX_UPLOADS
+  if (!bucket) throw new Error("BLACKBOX_UPLOADS R2 bucket not configured")
+  const obj = await bucket.get(attachmentKey)
+  if (!obj) throw new Error("File not found in R2: " + attachmentKey)
+  const arrayBuffer = await obj.arrayBuffer()
+  const bytes = new Uint8Array(arrayBuffer)
+  let binary = ""
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  const base64 = btoa(binary)
+  const mimeType = obj.httpMetadata?.contentType || "image/jpeg"
+  const safeMime = (mimeType === "image/heic" || mimeType === "image/heif") ? "image/jpeg" : mimeType
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + openaiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gpt-4.5-preview",
+      input: [{
+        type: "message", role: "user",
+        content: [
+          { type: "input_image", image_url: { url: "data:" + safeMime + ";base64," + base64 } },
+          { type: "input_text", text: "Extract the conversation text from this screenshot. Format each message as 'Speaker: message text'. If you cannot identify speakers, use 'Person A' and 'Person B'. Return only the conversation text, no other commentary." }
+        ]
+      }]
+    })
+  })
+  const contentType = res.headers.get("content-type") || ""
+  if (!contentType.includes("application/json")) throw new Error("OpenAI returned non-JSON response (" + res.status + ")")
+  const data = await res.json()
+  const text = data.output?.[0]?.content?.[0]?.text || ""
+  if (!text) throw new Error("OpenAI vision returned empty text")
+  return text
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context
   if (!env.DB) return json({ error: "DB not configured" }, 503)
@@ -49,37 +84,50 @@ export async function onRequestPost(context) {
   if (!conversation_id) return json({ error: "conversation_id required" }, 400)
 
   try {
-    // Fetch conversation
     const conv = await env.DB.prepare(
       "SELECT * FROM conversations WHERE id = ?"
     ).bind(conversation_id).first()
     if (!conv) return json({ error: "Conversation not found" }, 404)
 
-    if (!conv.raw_text) {
-      return json({ error: "No transcript available for this conversation. Complete transcription first." }, 400)
+    let rawText = conv.raw_text || ""
+
+    // No raw_text — attempt recovery based on source type
+    if (!rawText) {
+      if (conv.source_type === "screenshot" && conv.attachment_key) {
+        try {
+          rawText = await extractTextFromScreenshot(env, conv.attachment_key, env.OPENAI_API_KEY)
+          await env.DB.prepare("UPDATE conversations SET raw_text = ?, status = 'transcribed' WHERE id = ?")
+            .bind(rawText, conversation_id).run()
+        } catch (err) {
+          return json({
+            error: "Could not extract text from screenshot",
+            detail: String(err),
+            suggestion: "Try re-uploading the screenshot through the + SCREENSHOT button."
+          }, 422)
+        }
+      } else if (conv.source_type === "audio") {
+        return json({
+          error: "Audio transcript not available.",
+          suggestion: "Re-record this conversation through the RECORD button to generate a fresh transcript."
+        }, 400)
+      } else {
+        return json({
+          error: "No content available to analyze.",
+          detail: "source_type: " + conv.source_type + ", attachment_key: " + (conv.attachment_key || "none"),
+          suggestion: "Re-upload the original file to regenerate content."
+        }, 400)
+      }
     }
 
-    // Get current version count
-    const latest = await env.DB.prepare(
-      "SELECT MAX(version) as max_version FROM analysis_runs WHERE conversation_id = ?"
-    ).bind(conversation_id).first()
+    if (!rawText) return json({ error: "Text extraction returned empty content." }, 422)
 
-    // analysis_runs may not have version column yet — handle gracefully
-    let nextVersion = 2
-    try {
-      nextVersion = (latest?.max_version || 1) + 1
-    } catch {}
-
-    // Run analysis with GPT-4.5
+    // Run GPT-4.5 analysis
     const res = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
+      headers: { "Authorization": "Bearer " + env.OPENAI_API_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "gpt-4.5-preview",
-        input: `${ANALYSIS_PROMPT}\n\nConversation to analyze:\n${conv.raw_text}`
+        input: ANALYSIS_PROMPT + "\n\nConversation to analyze:\n" + rawText
       })
     })
 
@@ -112,7 +160,6 @@ export async function onRequestPost(context) {
       now
     ).run()
 
-    // Update conversation to point to latest analysis
     await env.DB.prepare(
       "UPDATE conversations SET analysis_id = ?, status = 'complete', updated_at = ? WHERE id = ?"
     ).bind(analysisId, now, conversation_id).run()
@@ -120,8 +167,8 @@ export async function onRequestPost(context) {
     return json({
       ok: true,
       analysis_id: analysisId,
-      version: nextVersion,
       conversation_id,
+      extracted_text: !conv.raw_text,
       analysis: {
         id: analysisId,
         quality_score: analysis.quality_score || 0,
