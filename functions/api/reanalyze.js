@@ -45,13 +45,16 @@ async function extractTextFromScreenshot(env, attachmentKey, openaiKey) {
   if (!obj) throw new Error("File not found in R2: " + attachmentKey)
   const arrayBuffer = await obj.arrayBuffer()
 
-  // Chunked base64 encoding — avoids call stack overflow on large images
-  // btoa(String.fromCharCode(...largeArray)) fails on images > ~1MB
+  // Use Cloudflare's built-in btoa with proper binary string construction
+  // Process in small chunks to avoid call stack overflow on large images
   const bytes = new Uint8Array(arrayBuffer)
   let base64 = ""
-  const CHUNK = 8192
+  const CHUNK = 1024
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    base64 += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+    const chunk = bytes.subarray(i, Math.min(i + CHUNK, bytes.length))
+    for (let j = 0; j < chunk.length; j++) {
+      base64 += String.fromCharCode(chunk[j])
+    }
   }
   base64 = btoa(base64)
   const mimeType = obj.httpMetadata?.contentType || "image/jpeg"
