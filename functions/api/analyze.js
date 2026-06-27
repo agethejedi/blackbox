@@ -168,40 +168,47 @@ export async function onRequestPost(context) {
 export async function onRequestGet(context) {
   const { request, env } = context
   const url = new URL(request.url)
-  const parts = url.pathname.split("/").filter(Boolean)
-  const convId = parts[parts.length - 1]
 
-  if (!convId || convId === "analyze") return json({ error: "conversation_id required" }, 400)
+  // Accept both ?id=uuid (preferred) and path segment /analyze/uuid (legacy)
+  const convId = url.searchParams.get("id") ||
+    (() => { const parts = url.pathname.split("/").filter(Boolean); const last = parts[parts.length - 1]; return last !== "analyze" ? last : null })()
 
-  const conv = await env.DB.prepare("SELECT * FROM conversations WHERE id = ?").bind(convId).first()
-  if (!conv) return json({ error: "Not found" }, 404)
+  if (!convId) return json({ error: "conversation_id required" }, 400)
+  if (!env.DB) return json({ error: "DB not configured" }, 503)
 
-  if (conv.status !== "complete") return json({ status: conv.status })
+  try {
+    const conv = await env.DB.prepare("SELECT * FROM conversations WHERE id = ?").bind(convId).first()
+    if (!conv) return json({ error: "Not found" }, 404)
 
-  const analysis = await env.DB.prepare("SELECT * FROM analysis_runs WHERE conversation_id = ?").bind(convId).first()
-  if (!analysis) return json({ status: "processing" })
+    if (conv.status !== "complete") return json({ status: conv.status || "processing" })
 
-  return json({
-    status: "complete",
-    analysis: {
-      id: analysis.id,
-      conversation_id: convId,
-      quality_score: analysis.quality_score,
-      escalation_score: analysis.escalation_score,
-      validation_score: analysis.validation_score,
-      collaboration_score: analysis.collaboration_score,
-      topic_drift_score: analysis.topic_drift_score,
-      resolution_probability: analysis.resolution_probability,
-      outcome: analysis.outcome,
-      topics: JSON.parse(analysis.topics || "[]"),
-      themes: JSON.parse(analysis.themes || "[]"),
-      coaching_recommendations: JSON.parse(analysis.coaching_recommendations || "[]"),
-      horsemen: JSON.parse(analysis.horsemen_data || "{}"),
-      repair: JSON.parse(analysis.repair_data || "{}"),
-      created_at: analysis.created_at,
+    const analysis = await env.DB.prepare("SELECT * FROM analysis_runs WHERE conversation_id = ?").bind(convId).first()
+    if (!analysis) return json({ status: "processing" })
+
+    return json({
       status: "complete",
-    }
-  })
+      analysis: {
+        id: analysis.id,
+        conversation_id: convId,
+        quality_score: analysis.quality_score,
+        escalation_score: analysis.escalation_score,
+        validation_score: analysis.validation_score,
+        collaboration_score: analysis.collaboration_score,
+        topic_drift_score: analysis.topic_drift_score,
+        resolution_probability: analysis.resolution_probability,
+        outcome: analysis.outcome,
+        topics: JSON.parse(analysis.topics || "[]"),
+        themes: JSON.parse(analysis.themes || "[]"),
+        coaching_recommendations: JSON.parse(analysis.coaching_recommendations || "[]"),
+        horsemen: JSON.parse(analysis.horsemen_data || "{}"),
+        repair: JSON.parse(analysis.repair_data || "{}"),
+        created_at: analysis.created_at,
+        status: "complete",
+      }
+    })
+  } catch (err) {
+    return json({ error: "Poll failed", detail: String(err) }, 500)
+  }
 }
 
 export async function onRequestOptions() {
