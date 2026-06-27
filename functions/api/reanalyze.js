@@ -1,5 +1,4 @@
-// POST /api/reanalyze — re-run analysis on an existing conversation, versioned
-// Handles conversations with no raw_text by re-extracting from R2
+// POST /api/reanalyze — re-run analysis, versioned. Re-extracts from R2 if no raw_text.
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -38,27 +37,33 @@ Analyze the following conversation and return ONLY a valid JSON object:
 }
 Do NOT determine who is right. Identify patterns only.`
 
-async function extractTextFromScreenshot(env, attachmentKey, openaiKey) {
-  const bucket = env.BLACKBOX_UPLOADS
-  if (!bucket) throw new Error("BLACKBOX_UPLOADS R2 bucket not configured")
-  const obj = await bucket.get(attachmentKey)
-  if (!obj) throw new Error("File not found in R2: " + attachmentKey)
-  const arrayBuffer = await obj.arrayBuffer()
-
-  // Use Cloudflare's built-in btoa with proper binary string construction
-  // Process in small chunks to avoid call stack overflow on large images
+// Safe chunked base64 — avoids call stack overflow on large images
+function toBase64(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer)
-  let base64 = ""
+  let binary = ""
   const CHUNK = 1024
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    const chunk = bytes.subarray(i, Math.min(i + CHUNK, bytes.length))
-    for (let j = 0; j < chunk.length; j++) {
-      base64 += String.fromCharCode(chunk[j])
-    }
+    const end = Math.min(i + CHUNK, bytes.length)
+    for (let j = i; j < end; j++) binary += String.fromCharCode(bytes[j])
   }
-  base64 = btoa(base64)
+  return btoa(binary)
+}
+
+async function extractTextFromScreenshot(env, attachmentKey, openaiKey) {
+  if (!env.BLACKBOX_UPLOADS) throw new Error("BLACKBOX_UPLOADS R2 bucket not configured")
+  const obj = await env.BLACKBOX_UPLOADS.get(attachmentKey)
+  if (!obj) throw new Error("File not found in R2: " + attachmentKey)
+
+  const arrayBuffer = await obj.arrayBuffer()
+  console.log("[BlackBox reanalyze] R2 file size:", arrayBuffer.byteLength)
+  if (arrayBuffer.byteLength === 0) throw new Error("R2 file is empty")
+
+  const base64 = toBase64(arrayBuffer)
+  console.log("[BlackBox reanalyze] base64 length:", base64.length)
+
   const mimeType = obj.httpMetadata?.contentType || "image/jpeg"
   const safeMime = (mimeType === "image/heic" || mimeType === "image/heif") ? "image/jpeg" : mimeType
+
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Authorization": "Bearer " + openaiKey, "Content-Type": "application/json" },
@@ -73,11 +78,18 @@ async function extractTextFromScreenshot(env, attachmentKey, openaiKey) {
       }]
     })
   })
-  const contentType = res.headers.get("content-type") || ""
-  if (!contentType.includes("application/json")) throw new Error("OpenAI returned non-JSON response (" + res.status + ")")
+
+  const ct = res.headers.get("content-type") || ""
+  if (!ct.includes("application/json")) {
+    const raw = await res.text()
+    throw new Error("OpenAI non-JSON (" + res.status + "): " + raw.slice(0, 100))
+  }
   const data = await res.json()
+  console.log("[BlackBox reanalyze] OpenAI status:", res.status, "error:", data.error?.message || "none")
+  if (data.error) throw new Error("OpenAI error: " + data.error.message)
   const text = data.output?.[0]?.content?.[0]?.text || ""
-  if (!text) throw new Error("OpenAI vision returned empty text")
+  console.log("[BlackBox reanalyze] Extracted text length:", text.length)
+  if (!text) throw new Error("OpenAI vision returned empty — size: " + arrayBuffer.byteLength + " bytes, mime: " + safeMime)
   return text
 }
 
@@ -117,13 +129,12 @@ export async function onRequestPost(context) {
       } else if (conv.source_type === "audio") {
         return json({
           error: "Audio transcript not available.",
-          suggestion: "Re-record this conversation through the RECORD button to generate a fresh transcript."
+          suggestion: "Re-record through the RECORD button to generate a fresh transcript."
         }, 400)
       } else {
         return json({
-          error: "No content available to analyze.",
-          detail: "source_type: " + conv.source_type + ", attachment_key: " + (conv.attachment_key || "none"),
-          suggestion: "Re-upload the original file to regenerate content."
+          error: "No content to analyze.",
+          detail: "source_type: " + conv.source_type + ", attachment_key: " + (conv.attachment_key || "none")
         }, 400)
       }
     }
