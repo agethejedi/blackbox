@@ -3,6 +3,7 @@ import { NavItem } from './types'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import Conversations from './pages/Conversations'
+import Collections from './pages/Collections'
 import CoachMode from './pages/CoachMode'
 import FourHorsemen from './pages/FourHorsemen'
 import RepairIndex from './pages/RepairIndex'
@@ -16,6 +17,7 @@ export default function App() {
     switch (activeNav) {
       case 'dashboard':     return <Dashboard onNavigate={setActiveNav} />
       case 'conversations': return <Conversations />
+      case 'collections':   return <Collections />
       case 'horsemen':      return <FourHorsemen />
       case 'repair':        return <RepairIndex />
       case 'history':       return <SmartHistory />
