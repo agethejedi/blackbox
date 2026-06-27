@@ -5,6 +5,7 @@ interface NavEntry { id: NavItem; label: string; icon: string; }
 const NAV_ITEMS: NavEntry[] = [
   { id: 'dashboard',     label: 'Dashboard',            icon: '⬡' },
   { id: 'conversations', label: 'Conversations',         icon: '💬' },
+  { id: 'collections',   label: 'Collections',           icon: '📁' },
   { id: 'quality',       label: 'Conversation Quality',  icon: '📊' },
   { id: 'horsemen',      label: 'Four Horsemen',         icon: '⚡' },
   { id: 'repair',        label: 'Repair Index',          icon: '🔧' },
