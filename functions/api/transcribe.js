@@ -25,6 +25,14 @@ export async function onRequestPost(context) {
 
   if (!audioFile) return json({ error: "audio file required" }, 400)
 
+  // Read audio into buffer ONCE — stream can only be consumed once
+  // Using arrayBuffer for both R2 and AssemblyAI upload
+  const audioBuffer = await audioFile.arrayBuffer()
+
+  if (!audioBuffer || audioBuffer.byteLength === 0) {
+    return json({ error: "Audio file is empty — no data was captured" }, 400)
+  }
+
   // 1. Store in R2
   const fileId  = crypto.randomUUID()
   const ext     = audioFile.type.includes("ogg") ? "ogg"
@@ -33,13 +41,11 @@ export async function onRequestPost(context) {
                 : "webm"
   const r2Key   = `recordings/${fileId}.${ext}`
 
-  await env.BLACKBOX_AUDIO.put(r2Key, audioFile.stream(), {
+  await env.BLACKBOX_AUDIO.put(r2Key, audioBuffer.slice(0), {
     httpMetadata: { contentType: audioFile.type },
   })
 
-  // 2. Generate a temporary public URL for AssemblyAI to fetch
-  // We use AssemblyAI's upload endpoint to avoid needing a public R2 URL
-  const audioBuffer = await audioFile.arrayBuffer()
+  // 2. Upload to AssemblyAI using the same buffer
   const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
     method: "POST",
     headers: {
