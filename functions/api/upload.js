@@ -124,7 +124,15 @@ export async function onRequestPost(context) {
         // Use GPT-4.5 vision to extract text from screenshot
         const fileData = await bucket.get(key)
         const arrayBuffer = await fileData.arrayBuffer()
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+        // Chunked base64 — spread operator fails on images > ~500KB
+        const bytes = new Uint8Array(arrayBuffer)
+        let binary = ""
+        const CHUNK = 1024
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          const chunk = bytes.subarray(i, Math.min(i + CHUNK, bytes.length))
+          for (let j = 0; j < chunk.length; j++) binary += String.fromCharCode(chunk[j])
+        }
+        const base64 = btoa(binary)
 
         const res = await fetch("https://api.openai.com/v1/responses", {
           method: "POST",
